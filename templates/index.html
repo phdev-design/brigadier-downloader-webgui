@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brigadier Downloader</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自訂樣式 */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        .log-entry {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-entry.error {
+            color: #ef4444; /* red-500 */
+        }
+        .log-entry.product {
+            color: #22c55e; /* green-500 */
+        }
+        #log-container {
+            height: 400px;
+        }
+        /* 讓表格標頭固定 */
+        #product-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 md:p-8 space-y-6 relative">
+        
+        <!-- 語言切換按鈕 -->
+        <div class="absolute top-4 right-4">
+            <button id="lang-switcher" class="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition">English</button>
+        </div>
+
+        <div class="text-center">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white" data-lang-key="main_title">Brigadier Downloader</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-2" data-lang-key="subtitle">一個用於下載 Boot Camp 驅動程式的簡易介面</p>
+        </div>
+
+        <form id="brigadier-form" class="space-y-4">
+            <div>
+                <label for="model" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" data-lang-key="model_label">Mac 型號識別碼</label>
+                <input type="text" id="model" name="model" value="{{ default_model or '' }}" class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" data-lang-key="model_placeholder" placeholder="例如：MacBookPro16,1">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1" data-lang-key="model_helper">如果留空，將會嘗試自動偵測本機型號。</p>
+            </div>
+            <button type="submit" id="start-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" data-lang-key="search_button">
+                1. 搜尋可用的驅動程式
+            </button>
+        </form>
+
+        <div id="product-section" class="hidden">
+            <h2 class="text-xl font-semibold mb-2" data-lang-key="products_title">可用的產品</h2>
+            <div class="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table id="product-table" class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead class="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" data-lang-key="table_select">選擇</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" data-lang-key="table_product_id">產品 ID</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" data-lang-key="table_post_date">發佈日期</th>
+                        </tr>
+                    </thead>
+                    <tbody id="product-list" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700"></tbody>
+                </table>
+            </div>
+            <button id="download-button" class="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500" disabled data-lang-key="download_selected_button">
+                2. 下載所選項目
+            </button>
+        </div>
+
+        <div id="progress-container" class="hidden w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+            <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+        </div>
+        <div id="progress-text" class="text-center text-sm text-gray-500 dark:text-gray-400"></div>
+
+        <!-- 下載區域 -->
+        <div id="download-section" class="hidden text-center border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h2 class="text-xl font-semibold mb-2" data-lang-key="download_ready_title">下載已就緒</h2>
+            <p class="text-gray-500 dark:text-gray-400 mb-4" data-lang-key="download_ready_subtitle">您的 Boot Camp 驅動程式已壓縮完成。</p>
+            <a id="final-download-link" href="#" download class="w-full md:w-1/2 mx-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+                <span data-lang-key="download_zip_button">3. 下載 ZIP 檔案</span>
+            </a>
+            <p id="cleanup-status" class="text-xs text-gray-500 dark:text-gray-400 mt-2" data-lang-key="cleanup_notice">注意：檔案下載完成後將自動從伺服器刪除。</p>
+        </div>
+
+        <div class="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+             <h3 class="text-lg font-semibold mb-2" data-lang-key="log_title">即時日誌</h3>
+             <div id="log-container" class="overflow-y-auto bg-white dark:bg-gray-800 p-3 rounded-md shadow-inner">
+                <pre id="log" class="text-sm font-mono"></pre>
+             </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const form = document.getElementById('brigadier-form');
+        const startButton = document.getElementById('start-button');
+        const log = document.getElementById('log');
+        const logContainer = document.getElementById('log-container');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const productSection = document.getElementById('product-section');
+        const productList = document.getElementById('product-list');
+        const downloadButton = document.getElementById('download-button');
+        const downloadSection = document.getElementById('download-section');
+        const finalDownloadLink = document.getElementById('final-download-link');
+        const langSwitcher = document.getElementById('lang-switcher');
+
+        let eventSource;
+        let products = [];
+        let currentLang = 'zh-Hant';
+
+        // Translation Strings
+        const translations = {
+            'en': {
+                'main_title': 'Brigadier Web UI',
+                'subtitle': 'A simple interface for downloading Boot Camp drivers',
+                'model_label': 'Mac Model Identifier',
+                'model_placeholder': 'e.g., MacBookPro16,1',
+                'model_helper': 'If left blank, it will try to detect the local model.',
+                'search_button': '1. Search for Available Drivers',
+                'products_title': 'Available Products',
+                'table_select': 'Select',
+                'table_product_id': 'Product ID',
+                'table_post_date': 'Post Date',
+                'download_selected_button': '2. Download Selected Item',
+                'download_ready_title': 'Download Ready',
+                'download_ready_subtitle': 'Your Boot Camp drivers have been zipped.',
+                'download_zip_button': '3. Download ZIP File',
+                'cleanup_notice': 'Note: The file will be automatically deleted from the server after download.',
+                'log_title': 'Live Log',
+                'lang_switcher_text': '繁體中文',
+                'log_info': 'INFO',
+                'log_error': 'ERROR',
+                'log_product_found': 'PRODUCT FOUND',
+                'log_product_date': 'Date',
+                'log_downloading': 'Downloading...',
+                'log_task_complete': 'Task Complete!',
+                'log_connection_lost': 'Connection to server lost.',
+                'log_enter_model': 'Please enter a Mac model!',
+                'log_select_product': 'Please select a product to download!',
+                'log_download_started': 'Download has started, the page will refresh in 2 seconds...',
+            },
+            'zh-Hant': {
+                'main_title': 'Brigadier Web UI',
+                'subtitle': '一個用於下載 Boot Camp 驅動程式的簡易介面',
+                'model_label': 'Mac 型號識別碼',
+                'model_placeholder': '例如：MacBookPro16,1',
+                'model_helper': '如果留空，將會嘗試自動偵測本機型號。',
+                'search_button': '1. 搜尋可用的驅動程式',
+                'products_title': '可用的產品',
+                'table_select': '選擇',
+                'table_product_id': '產品 ID',
+                'table_post_date': '發佈日期',
+                'download_selected_button': '2. 下載所選項目',
+                'download_ready_title': '下載已就緒',
+                'download_ready_subtitle': '您的 Boot Camp 驅動程式已壓縮完成。',
+                'download_zip_button': '3. 下載 ZIP 檔案',
+                'cleanup_notice': '注意：檔案下載完成後將自動從伺服器刪除。',
+                'log_title': '即時日誌',
+                'lang_switcher_text': 'English',
+                'log_info': '資訊',
+                'log_error': '錯誤',
+                'log_product_found': '找到產品',
+                'log_product_date': '日期',
+                'log_downloading': '正在下載...',
+                'log_task_complete': '任務完成！',
+                'log_connection_lost': '與伺服器的連線中斷。',
+                'log_enter_model': '請輸入 Mac 型號！',
+                'log_select_product': '請先選擇一個要下載的產品！',
+                'log_download_started': '下載已開始，頁面將在 2 秒後重新整理...',
+            }
+        };
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem('brigadier_lang', lang);
+            document.documentElement.lang = lang;
+            
+            document.querySelectorAll('[data-lang-key]').forEach(element => {
+                const key = element.getAttribute('data-lang-key');
+                if (translations[lang][key]) {
+                    if (element.tagName === 'INPUT' && element.placeholder) {
+                        element.placeholder = translations[lang][key];
+                    } else {
+                        // For elements like <a> that might have other nodes inside
+                        const target = element.querySelector('span[data-lang-key]') || element;
+                        target.textContent = translations[lang][key];
+                    }
+                }
+            });
+            langSwitcher.textContent = translations[lang]['lang_switcher_text'];
+        }
+
+        function addLog(data) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            let message = (typeof data.message === 'string') ? data.message : '';
+            const t = translations[currentLang];
+
+            if (data.type === 'error') {
+                entry.classList.add('error');
+                message = `[${t.log_error}] ${message}`;
+            } else if (data.type === 'product_found') {
+                entry.classList.add('product');
+                message = `[${t.log_product_found}] ID: ${data.product_id}, ${t.log_product_date}: ${data.post_date}`;
+                products.push(data);
+            } else {
+                message = `[${t.log_info}] ${message}`;
+            }
+            entry.textContent = message;
+            log.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProductTable() {
+            productList.innerHTML = '';
+            if (products.length > 0) {
+                productSection.classList.remove('hidden');
+                products.sort((a, b) => new Date(b.post_date) - new Date(a.post_date));
+                products.forEach((product, index) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap"><input type="radio" name="product_choice" value="${product.product_id}" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" ${index === 0 ? 'checked' : ''}></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">${product.product_id}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${product.post_date}</td>
+                    `;
+                    productList.appendChild(row);
+                });
+                downloadButton.disabled = false;
+            }
+        }
+
+        function startProcess(model, productId = '') {
+            log.innerHTML = '';
+            progressContainer.classList.add('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '';
+            startButton.disabled = true;
+            startButton.textContent = '...'; // Will be set by setLanguage
+            downloadButton.disabled = true;
+            downloadSection.classList.add('hidden');
+            
+            const url = `/run?model=${encodeURIComponent(model)}&product_id=${encodeURIComponent(productId)}`;
+            eventSource = new EventSource(url);
+
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'log' || data.type === 'error' || data.type === 'product_found') {
+                    addLog(data);
+                }
+
+                if (data.type === 'progress') {
+                    progressContainer.classList.remove('hidden');
+                    progressBar.style.width = `${data.percent}%`;
+                    const downloadedMB = (data.downloaded / 1024 / 1024).toFixed(2);
+                    const totalMB = (data.total / 1024 / 1024).toFixed(2);
+                    progressText.textContent = `${translations[currentLang].log_downloading} ${downloadedMB} MB / ${totalMB} MB (${data.percent}%)`;
+                }
+                
+                if (data.type === 'zip_ready') {
+                    downloadSection.classList.remove('hidden');
+                    finalDownloadLink.href = `/download/${data.filename}`;
+                    finalDownloadLink.setAttribute('download', data.filename);
+                }
+                
+                if (data.type === 'done') {
+                    eventSource.close();
+                    startButton.disabled = false;
+                    setLanguage(currentLang); // Restore button text
+                    downloadButton.disabled = products.length === 0;
+                    addLog({type: 'log', message: translations[currentLang].log_task_complete});
+                }
+            };
+
+            eventSource.onerror = function() {
+                addLog({type: 'error', message: translations[currentLang].log_connection_lost});
+                eventSource.close();
+                startButton.disabled = false;
+                setLanguage(currentLang); // Restore button text
+                downloadButton.disabled = products.length === 0;
+            };
+        }
+
+        // Event Listeners
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const model = document.getElementById('model').value;
+            if (!model) {
+                addLog({type: 'error', message: translations[currentLang].log_enter_model});
+                return;
+            }
+            products = [];
+            productList.innerHTML = '';
+            productSection.classList.add('hidden');
+            
+            startProcess(model);
+            
+            const checkDoneInterval = setInterval(() => {
+                if (!startButton.disabled) {
+                    clearInterval(checkDoneInterval);
+                    updateProductTable();
+                }
+            }, 500);
+        });
+
+        downloadButton.addEventListener('click', function() {
+            const selectedProduct = document.querySelector('input[name="product_choice"]:checked');
+            if (!selectedProduct) {
+                addLog({type: 'error', message: translations[currentLang].log_select_product});
+                return;
+            }
+            const model = document.getElementById('model').value;
+            const productId = selectedProduct.value;
+            startProcess(model, productId);
+        });
+
+        finalDownloadLink.addEventListener('click', function() {
+            addLog({type: 'log', message: translations[currentLang].log_download_started});
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        });
+
+        langSwitcher.addEventListener('click', function() {
+            const newLang = currentLang === 'zh-Hant' ? 'en' : 'zh-Hant';
+            setLanguage(newLang);
+        });
+
+        // Initial Setup on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedLang = localStorage.getItem('brigadier_lang') || 'zh-Hant';
+            setLanguage(savedLang);
+        });
+    </script>
+</body>
+</html>
